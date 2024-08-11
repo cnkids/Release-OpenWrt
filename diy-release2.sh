@@ -40,7 +40,3 @@ sed -i 's/luci-app-sfe //g' target/linux/x86/Makefile
 sed -i 's/luci-app-uugamebooster//g' target/linux/x86/Makefile
 sed -i 's/-luci-app-flowoffload//g' target/linux/x86/Makefile
 sed -i 's/kmod-drm-amdgpu \\/kmod-drm-amdgpu/g' target/linux/x86/Makefile
-
-# Add WOL Plus
-svn co https://github.com/sundaqiang/openwrt-packages/trunk/luci-app-services-wolplus ./package/luci-app-wolplus
-chmod -R 755 ./package/luci-app-wolplus/*
