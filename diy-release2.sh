@@ -23,18 +23,11 @@ modelmark=R`TZ=UTC-8 date +%Y-%m-%d -d +"0"days`' by JIA'
 sed -i "s/DISTRIB_REVISION='R[0-9]*\.[0-9]*\.[0-9]*\.[0-9]*/DISTRIB_REVISION='$modelmark/g" ./package/lean/default-settings/files/zzz-default-settings
 
 #添加主题
-git clone https://github.com/xiaoqingfengATGH/luci-theme-infinityfreedom package/luci-theme-infinityfreedom-ng
+echo 'src-git infinityfreedomng https://github.com/xiaoqingfengATGH/luci-theme-infinityfreedom.git' >>feeds.conf.default
 
 #更换默认主题为opentopd，并删除bootstrap主题
 sed -i 's#luci-theme-bootstrap#luci-theme-infinityfreedom-ng#g' feeds/luci/collections/luci/Makefile
 sed -i 's/bootstrap/opentopd/g' feeds/luci/modules/luci-base/root/etc/config/luci
-
-#删除lean大集成的旧版argon主题，更换为新版argon主题#Change Argon Theme
-rm -rf ./package/lean/luci-theme-argon && git clone -b 18.06 https://github.com/jerrykuku/luci-theme-argon.git package/lean/luci-theme-argon
-
-
-# Change default BackGround img
-wget -O ./package/lean/luci-theme-argon/htdocs/luci-static/argon/img/bg1.jpg https://github.com/jiawm/My-OpenWrt-by-Lean/raw/main/BackGround/2.jpg
 
 # Remove the default apps
 sed -i 's/luci-app-zerotier //g' target/linux/x86/Makefile
