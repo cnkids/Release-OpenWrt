@@ -8,7 +8,6 @@
 # https://github.com/P3TERX/Actions-OpenWrt
 # File name: diy-part2.sh
 # Description: OpenWrt DIY script part 2 (After Update feeds)
-echo 'src-git helloworld https://github.com/fw876/helloworld' >>feeds.conf.default
 
 # 切换ramips内核为 5.10
 sed -i 's/5.4/5.10/g' ./target/linux/ramips/Makefile
