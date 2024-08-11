@@ -8,6 +8,7 @@
 # https://github.com/P3TERX/Actions-OpenWrt
 # File name: diy-part2.sh
 # Description: OpenWrt DIY script part 2 (After Update feeds)
+echo 'src-git helloworld https://github.com/fw876/helloworld' >>feeds.conf.default
 
 # 切换ramips内核为 5.10
 sed -i 's/5.4/5.10/g' ./target/linux/ramips/Makefile
@@ -23,10 +24,10 @@ modelmark=R`TZ=UTC-8 date +%Y-%m-%d -d +"0"days`' by JIA'
 sed -i "s/DISTRIB_REVISION='R[0-9]*\.[0-9]*\.[0-9]*\.[0-9]*/DISTRIB_REVISION='$modelmark/g" ./package/lean/default-settings/files/zzz-default-settings
 
 #添加主题
-git clone https://github.com/sirpdboy/luci-theme-opentopd package/luci-theme-opentopd
+git clone https://github.com/xiaoqingfengATGH/luci-theme-infinityfreedom package/luci-theme-infinityfreedom-ng
 
 #更换默认主题为opentopd，并删除bootstrap主题
-sed -i 's#luci-theme-bootstrap#luci-theme-opentopd#g' feeds/luci/collections/luci/Makefile
+sed -i 's#luci-theme-bootstrap#luci-theme-infinityfreedom-ng#g' feeds/luci/collections/luci/Makefile
 sed -i 's/bootstrap/opentopd/g' feeds/luci/modules/luci-base/root/etc/config/luci
 
 #删除lean大集成的旧版argon主题，更换为新版argon主题#Change Argon Theme
