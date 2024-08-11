@@ -27,7 +27,6 @@ echo 'src-git infinityfreedomng https://github.com/xiaoqingfengATGH/luci-theme-i
 
 #更换默认主题为opentopd，并删除bootstrap主题
 sed -i 's#luci-theme-bootstrap#luci-theme-infinityfreedom-ng#g' feeds/luci/collections/luci/Makefile
-sed -i 's/bootstrap/opentopd/g' feeds/luci/modules/luci-base/root/etc/config/luci
 
 # Remove the default apps
 sed -i 's/luci-app-zerotier //g' target/linux/x86/Makefile
