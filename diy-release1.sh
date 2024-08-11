@@ -12,5 +12,6 @@ sed -i 's/192.168.1.1/192.168.2.1/g' package/base-files/files/bin/config_generat
 
 #取消掉feeds.conf.default文件里面的helloworld的#注释
 sed -i 's/^#\(.*helloworld\)/\1/' feeds.conf.default  #使用源码自带ShadowSocksR Plus+出国软件
-git clone https://github.com/kenzok8/openwrt-packages.git package/kenzo
+#添加主题
+echo 'src-git infinityfreedomng https://github.com/xiaoqingfengATGH/luci-theme-infinityfreedom.git' >>feeds.conf.default
 
