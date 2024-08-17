@@ -9,11 +9,8 @@
 # File name: diy-part2.sh
 # Description: OpenWrt DIY script part 2 (After Update feeds)
 
-# 切换ramips内核为 5.10
-sed -i 's/5.4/5.10/g' ./target/linux/ramips/Makefile
-
 # 切换x86内核为 5.10
-sed -i 's/5.4/5.10/g' ./target/linux/x86/Makefile
+# sed -i 's/5.4/5.10/g' ./target/linux/x86/Makefile
 
 # 修复核心及添加温度显示
 sed -i 's/invalid/# invalid/g' package/network/services/samba36/files/smb.conf.template
@@ -22,7 +19,7 @@ sed -i 's/invalid/# invalid/g' package/network/services/samba36/files/smb.conf.t
 modelmark=R`TZ=UTC-8 date +%Y-%m-%d -d +"0"days`' by JIA'
 sed -i "s/DISTRIB_REVISION='R[0-9]*\.[0-9]*\.[0-9]*\.[0-9]*/DISTRIB_REVISION='$modelmark/g" ./package/lean/default-settings/files/zzz-default-settings
 
-#更换默认主题为opentopd，并删除bootstrap主题
+#更换默认主题，并删除bootstrap主题
 sed -i 's#luci-theme-bootstrap#luci-theme-infinityfreedom-ng#g' feeds/luci/collections/luci/Makefile
 
 # Remove the default apps
