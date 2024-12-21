@@ -14,4 +14,3 @@
 sed -i 's/^#\(.*helloworld\)/\1/' feeds.conf.default  #使用源码自带ShadowSocksR Plus+出国软件
 #添加主题
 #echo 'src-git infinityfreedomng https://github.com/xiaoqingfengATGH/luci-theme-infinityfreedom.git' >>feeds.conf.default
-echo 'src-git luci https://github.com/openwrt/luci.git' >>feeds.conf.default
