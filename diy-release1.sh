@@ -12,4 +12,4 @@
 
 #取消掉feeds.conf.default文件里面的helloworld的#注释
 #sed -i 's/^#\(.*helloworld\)/\1/' feeds.conf.default  #使用源码自带ShadowSocksR Plus+出国软件
-echo 'git clone https://github.com/coolsnowwolf/lede' >>feeds.conf.default
+echo 'src-git helloworld https://github.com/fw876/helloworld.git' >>feeds.conf.default
