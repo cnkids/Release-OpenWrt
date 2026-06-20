@@ -32,6 +32,8 @@ env:
   UPLOAD_WETRANSFER: true
   UPLOAD_RELEASE: true
   TZ: Asia/Shanghai
+  # 强制 Node.js 24 运行环境，避免旧 Action 发出警告
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   build:
@@ -44,16 +46,12 @@ jobs:
     - name: 释放磁盘空间
       uses: jlumbroso/free-disk-space@main
       with:
-        # this might remove tools that are actually needed,
-        # if set to "true" but frees about 6 GB
         tool-cache: true
-        # all of these default to true, but feel free to set to
-        # "false" if necessary for your workflow
         android: true
         dotnet: true
         haskell: true
         large-packages: true
-        swap-storage: false
+        swap-storage: false   # 避免权限错误
 
     - name: Initialization environment
       env:
@@ -62,9 +60,6 @@ jobs:
         sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
         sudo -E apt-get -qq update
         sudo -E apt-get -qq install $(curl -fsSL git.io/depends-ubuntu-2004) gcc-multilib g++-multilib
-        sudo -E apt-get -qq autoremove --purge
-        sudo -E apt-get -qq clean
-        sudo -E apt-get -qq install $(curl -fsSL git.io/depends-ubuntu-2004)
         sudo -E apt-get -qq autoremove --purge
         sudo -E apt-get -qq clean
         sudo timedatectl set-timezone "$TZ"
@@ -165,7 +160,7 @@ jobs:
         curl -fsSL git.io/file-transfer | sh
         ./transfer cow --block 2621440 -s -p 64 --no-progress ${FIRMWARE} 2>&1 | tee cowtransfer.log
         echo "::warning file=cowtransfer.com::$(cat cowtransfer.log | grep https)"
-        echo "::set-output name=url::$(cat cowtransfer.log | grep https | cut -f3 -d" ")"
+        echo "url=$(cat cowtransfer.log | grep https | cut -f3 -d' ')" >> $GITHUB_OUTPUT
 
     - name: Upload firmware to WeTransfer
       id: wetransfer
@@ -174,7 +169,7 @@ jobs:
         curl -fsSL git.io/file-transfer | sh
         ./transfer wet -s -p 16 --no-progress ${FIRMWARE} 2>&1 | tee wetransfer.log
         echo "::warning file=wetransfer.com::$(cat wetransfer.log | grep https)"
-        echo "::set-output name=url::$(cat wetransfer.log | grep https | cut -f3 -d" ")"
+        echo "url=$(cat wetransfer.log | grep https | cut -f3 -d' ')" >> $GITHUB_OUTPUT
 
     - name: Generate release tag
       id: tag
@@ -205,7 +200,7 @@ jobs:
     - name: Remove old Releases
       if: env.UPLOAD_RELEASE == 'true' && !cancelled()
       run: |
-        # 获取当前仓库的所有 Release 标签，按创建时间排序，保留最新 3 个
+        # 保留最新的 3 个 Release，删除更早的
         gh release list --limit 100 --json tagName,createdAt --jq 'sort_by(.createdAt) | reverse | .[3:][] | .tagName' \
           | xargs -r -n1 gh release delete --yes
       env:
