@@ -32,32 +32,32 @@ env:
   UPLOAD_WETRANSFER: true
   UPLOAD_RELEASE: true
   TZ: Asia/Shanghai
-  # 强制 Node.js 24 运行环境，避免旧 Action 发出警告
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04   # 使用固定版本，避免 ubuntu-latest 变化
 
     steps:
     - name: Checkout
       uses: actions/checkout@main
 
-    - name: 释放磁盘空间
-      uses: jlumbroso/free-disk-space@main
-      with:
-        tool-cache: true
-        android: true
-        dotnet: true
-        haskell: true
-        large-packages: true
-        swap-storage: false   # 避免权限错误
+    # ---- 手动释放磁盘空间（完全替代 free-disk-space） ----
+    - name: 释放磁盘空间（手动）
+      run: |
+        sudo rm -rf /usr/share/dotnet
+        sudo rm -rf /usr/local/lib/android
+        sudo rm -rf /opt/ghc
+        sudo docker system prune -af || true
+        # 彻底关闭并删除 swapfile，避免权限错误
+        sudo swapoff -a || true
+        sudo rm -f /swapfile || true
+        df -hT
 
     - name: Initialization environment
       env:
         DEBIAN_FRONTEND: noninteractive
       run: |
-        sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
         sudo -E apt-get -qq update
         sudo -E apt-get -qq install $(curl -fsSL git.io/depends-ubuntu-2004) gcc-multilib g++-multilib
         sudo -E apt-get -qq autoremove --purge
@@ -200,7 +200,6 @@ jobs:
     - name: Remove old Releases
       if: env.UPLOAD_RELEASE == 'true' && !cancelled()
       run: |
-        # 保留最新的 3 个 Release，删除更早的
         gh release list --limit 100 --json tagName,createdAt --jq 'sort_by(.createdAt) | reverse | .[3:][] | .tagName' \
           | xargs -r -n1 gh release delete --yes
       env:
