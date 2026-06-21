@@ -32,7 +32,7 @@ env:
   UPLOAD_WETRANSFER: true
   UPLOAD_RELEASE: true
   TZ: Asia/Shanghai
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  # FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true   # 不再需要，因为已升级到 v6
 
 jobs:
   build:
@@ -72,6 +72,17 @@ jobs:
         git clone $REPO_URL -b $REPO_BRANCH openwrt
         ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
 
+    # ---------- 关键改动1：将 Setup Go 移到 Clone 之后 ----------
+    - name: Setup Go (for v2ray-plugin & mosdns)
+      uses: actions/setup-go@v6        # 升级到 v6，解决 Node.js 警告
+      with:
+        go-version: '1.25.5'          # 满足最新版要求
+      id: go
+
+    - name: Check Go version
+      run: go version
+    # ---------------------------------------------------------
+
     - name: Load custom feeds
       run: |
         [ -e $FEEDS_CONF ] && mv $FEEDS_CONF openwrt/feeds.conf.default
@@ -105,16 +116,18 @@ jobs:
         cd openwrt/package
         git clone https://github.com/jerrykuku/luci-theme-argon.git
 
-    # ---------------------- 新增：安装新版 Go ----------------------
-    - name: Setup Go (for v2ray-plugin)
-      uses: actions/setup-go@v5
-      with:
-        go-version: '1.25.5'   # 安装满足 v2ray-plugin 要求的版本
-      id: go
-
-    - name: Check Go version
-      run: go version   # 确认使用了正确的版本
-    # -------------------------------------------------------------
+    # ---------- 关键改动2：修复 Go 工具链限制 ----------
+    - name: Fix Go toolchain for problematic packages
+      run: |
+        # 修改 v2ray-plugin 和 mosdns 的 Makefile，允许使用系统 Go
+        find openwrt/feeds -type f -path "*/v2ray-plugin/Makefile" -o -path "*/mosdns/Makefile" | while read file; do
+          echo "Fixing $file"
+          sed -i 's/GOTOOLCHAIN=local/GOTOOLCHAIN=auto/g' "$file"
+        done
+        # 如果某些包没有该行，则添加（可选）
+        # 也可以直接替换所有 GOTOOLCHAIN=local 为 auto（更激进）
+        # find openwrt/feeds -name Makefile -exec sed -i 's/GOTOOLCHAIN=local/GOTOOLCHAIN=auto/g' {} \;
+    # -------------------------------------------------
 
     - name: Download package
       id: package
