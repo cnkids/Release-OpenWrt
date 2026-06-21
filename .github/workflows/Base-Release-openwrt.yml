@@ -32,7 +32,6 @@ env:
   UPLOAD_WETRANSFER: true
   UPLOAD_RELEASE: true
   TZ: Asia/Shanghai
-  # 不再需要 FORCE_JAVASCRIPT_ACTIONS_TO_NODE24，因为已升级 actions/setup-go 到 v6
 
 jobs:
   build:
@@ -72,41 +71,17 @@ jobs:
         git clone $REPO_URL -b $REPO_BRANCH openwrt
         ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
 
-    # ==========================================================
-    # 关键修改 1：在代码克隆后立即安装新版 Go（v6 解决 Node.js 警告）
-    # ==========================================================
+    # ---------- 安装新版 Go（v6 解决 Node.js 警告） ----------
     - name: Setup Go (for v2ray-plugin & mosdns)
       uses: actions/setup-go@v6
       with:
-        go-version: '1.25.5'   # 满足 v2ray-plugin 要求
+        go-version: '1.25.5'
       id: go
 
     - name: Check Go version
       run: go version
 
-    # ==========================================================
-    # 关键修改 2：修复 Go 工具链限制（GOTOOLCHAIN=local → auto）
-    # ==========================================================
-    - name: Fix Go toolchain for problematic packages
-      run: |
-        echo "=== Before fix ==="
-        grep -r "GOTOOLCHAIN" openwrt/feeds/helloworld/v2ray-plugin/ || echo "No GOTOOLCHAIN in v2ray-plugin"
-        grep -r "GOTOOLCHAIN" openwrt/feeds/packages/net/mosdns/ || echo "No GOTOOLCHAIN in mosdns"
-        
-        # 修改所有相关 Makefile
-        find openwrt/feeds -type f \( -path "*/v2ray-plugin/Makefile" -o -path "*/mosdns/Makefile" \) -exec sed -i 's/GOTOOLCHAIN=local/GOTOOLCHAIN=auto/g' {} \;
-        
-        # 同时也修改 golang-build.sh（有些包可能从这里继承）
-        sed -i 's/GOTOOLCHAIN=local/GOTOOLCHAIN=auto/g' openwrt/feeds/packages/lang/golang/golang-build.sh || true
-        
-        echo "=== After fix ==="
-        grep -r "GOTOOLCHAIN" openwrt/feeds/helloworld/v2ray-plugin/ || echo "GOTOOLCHAIN removed from v2ray-plugin"
-        grep -r "GOTOOLCHAIN" openwrt/feeds/packages/net/mosdns/ || echo "GOTOOLCHAIN removed from mosdns"
-        grep "GOTOOLCHAIN" openwrt/feeds/packages/lang/golang/golang-build.sh || echo "GOTOOLCHAIN removed from golang-build.sh"
-
-    # ==========================================================
-    # 继续原有流程
-    # ==========================================================
+    # ---------- 加载自定义 feeds 配置 ----------
     - name: Load custom feeds
       run: |
         [ -e $FEEDS_CONF ] && mv $FEEDS_CONF openwrt/feeds.conf.default
@@ -120,6 +95,25 @@ jobs:
     - name: Install feeds
       run: cd openwrt && ./scripts/feeds install -a -p luci
 
+    # ---------- 关键修改：此时 feeds 已下载，修复 GOTOOLCHAIN ----------
+    - name: Fix Go toolchain for problematic packages
+      run: |
+        echo "=== Before fix ==="
+        grep -r "GOTOOLCHAIN" openwrt/feeds/helloworld/v2ray-plugin/ 2>/dev/null || echo "No GOTOOLCHAIN in v2ray-plugin"
+        grep -r "GOTOOLCHAIN" openwrt/feeds/packages/net/mosdns/ 2>/dev/null || echo "No GOTOOLCHAIN in mosdns"
+        
+        # 修改 v2ray-plugin 和 mosdns 的 Makefile
+        find openwrt/feeds -type f \( -path "*/v2ray-plugin/Makefile" -o -path "*/mosdns/Makefile" \) -exec sed -i 's/GOTOOLCHAIN=local/GOTOOLCHAIN=auto/g' {} \;
+        
+        # 修改 golang-build.sh
+        sed -i 's/GOTOOLCHAIN=local/GOTOOLCHAIN=auto/g' openwrt/feeds/packages/lang/golang/golang-build.sh 2>/dev/null || true
+        
+        echo "=== After fix ==="
+        grep -r "GOTOOLCHAIN" openwrt/feeds/helloworld/v2ray-plugin/ 2>/dev/null || echo "GOTOOLCHAIN removed from v2ray-plugin"
+        grep -r "GOTOOLCHAIN" openwrt/feeds/packages/net/mosdns/ 2>/dev/null || echo "GOTOOLCHAIN removed from mosdns"
+        grep "GOTOOLCHAIN" openwrt/feeds/packages/lang/golang/golang-build.sh 2>/dev/null || echo "GOTOOLCHAIN removed from golang-build.sh"
+
+    # ---------- 加载自定义配置 ----------
     - name: Load custom configuration
       run: |
         [ -e files ] && mv files openwrt/files
@@ -149,16 +143,12 @@ jobs:
         find dl -size -1024c -exec ls -l {} \;
         find dl -size -1024c -exec rm -f {} \;
 
-    # ==========================================================
-    # 关键修改 3：编译时强制指定 GOTOOLCHAIN=auto（保险）
-    # ==========================================================
     - name: Compile the firmware
       id: compile
       run: |
         cd openwrt
         echo -e "$(nproc) thread compile"
-        # 明确设置 GOTOOLCHAIN=auto，确保使用新版 Go
-        export GOTOOLCHAIN=auto
+        export GOTOOLCHAIN=auto   # 双重保险
         make -j$(nproc) || make -j1 || make -j1 V=s
         echo "status=success" >>$GITHUB_OUTPUT
         grep '^CONFIG_TARGET.*DEVICE.*=y' .config | sed -r 's/.*DEVICE_(.*)=y/\1/' > DEVICE_NAME
@@ -178,7 +168,8 @@ jobs:
 
     - name: Organize files
       id: organize
-      if: env.UPLOAD_FIRMWARE == 'true' && !cancelled()
+      # 只有编译成功才执行
+      if: steps.compile.outputs.status == 'success' && env.UPLOAD_FIRMWARE == 'true' && !cancelled()
       run: |
         cd openwrt/bin/targets/*/*
         rm -rf packages
