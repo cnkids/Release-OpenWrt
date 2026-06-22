@@ -41,7 +41,6 @@ jobs:
     - name: Checkout
       uses: actions/checkout@main
 
-    # ---- 手动释放磁盘空间 ----
     - name: 释放磁盘空间（手动）
       run: |
         sudo rm -rf /usr/share/dotnet
@@ -71,17 +70,16 @@ jobs:
         git clone $REPO_URL -b $REPO_BRANCH openwrt
         ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
 
-    # ---------- 安装新版 Go，禁用缓存（避免查找 go.mod） ----------
+    # ---------- 安装新版 Go ----------
     - name: Setup Go (for v2ray-plugin & mosdns)
       uses: actions/setup-go@v6
       with:
         go-version: '1.25.5'
-        cache: false   # 关键修改：禁用缓存
+        cache: false
 
     - name: Check Go version
       run: go version
 
-    # ---------- 加载自定义 feeds 配置 ----------
     - name: Load custom feeds
       run: |
         [ -e $FEEDS_CONF ] && mv $FEEDS_CONF openwrt/feeds.conf.default
@@ -95,22 +93,49 @@ jobs:
     - name: Install feeds
       run: cd openwrt && ./scripts/feeds install -a -p luci
 
-    # ---------- 修复 GOTOOLCHAIN（此时 feeds 已下载） ----------
-    - name: Fix Go toolchain for problematic packages
+    # ---------- 强化修复 Go 工具链 ----------
+    - name: Fix Go toolchain (force GOTOOLCHAIN=auto)
       run: |
-        echo "=== Before fix ==="
-        grep -r "GOTOOLCHAIN" openwrt/feeds/helloworld/v2ray-plugin/ 2>/dev/null || echo "No GOTOOLCHAIN in v2ray-plugin"
-        grep -r "GOTOOLCHAIN" openwrt/feeds/packages/net/mosdns/ 2>/dev/null || echo "No GOTOOLCHAIN in mosdns"
-        
-        find openwrt/feeds -type f \( -path "*/v2ray-plugin/Makefile" -o -path "*/mosdns/Makefile" \) -exec sed -i 's/GOTOOLCHAIN=local/GOTOOLCHAIN=auto/g' {} \;
-        sed -i 's/GOTOOLCHAIN=local/GOTOOLCHAIN=auto/g' openwrt/feeds/packages/lang/golang/golang-build.sh 2>/dev/null || true
-        
-        echo "=== After fix ==="
-        grep -r "GOTOOLCHAIN" openwrt/feeds/helloworld/v2ray-plugin/ 2>/dev/null || echo "GOTOOLCHAIN removed from v2ray-plugin"
-        grep -r "GOTOOLCHAIN" openwrt/feeds/packages/net/mosdns/ 2>/dev/null || echo "GOTOOLCHAIN removed from mosdns"
-        grep "GOTOOLCHAIN" openwrt/feeds/packages/lang/golang/golang-build.sh 2>/dev/null || echo "GOTOOLCHAIN removed from golang-build.sh"
+        echo "=== Fixing golang-build.sh ==="
+        GOLANG_BUILD_SH="openwrt/feeds/packages/lang/golang/golang-build.sh"
+        if [ -f "$GOLANG_BUILD_SH" ]; then
+          sed -i 's/GOTOOLCHAIN=local/GOTOOLCHAIN=auto/g' "$GOLANG_BUILD_SH"
+          echo "Modified golang-build.sh:"
+          grep -n "GOTOOLCHAIN" "$GOLANG_BUILD_SH" || echo "No GOTOOLCHAIN found (already removed)"
+        else
+          echo "Warning: $GOLANG_BUILD_SH not found"
+        fi
 
-    # ---------- 加载自定义配置 ----------
+        echo "=== Fixing v2ray-plugin Makefile ==="
+        V2RAY_MAKEFILE="openwrt/feeds/helloworld/v2ray-plugin/Makefile"
+        if [ -f "$V2RAY_MAKEFILE" ]; then
+          # 删除所有 GOTOOLCHAIN 设置（无论 local 还是 auto）
+          sed -i '/GOTOOLCHAIN/d' "$V2RAY_MAKEFILE"
+          # 在 Build/Compile 规则中强制添加 GOTOOLCHAIN=auto
+          sed -i '/^define Build\/Compile/a\\tGOTOOLCHAIN=auto \\' "$V2RAY_MAKEFILE"
+          echo "Modified v2ray-plugin Makefile:"
+          grep -A5 -B5 "GOTOOLCHAIN" "$V2RAY_MAKEFILE" || echo "GOTOOLCHAIN inserted"
+        else
+          echo "Warning: $V2RAY_MAKEFILE not found"
+        fi
+
+        echo "=== Fixing mosdns Makefile ==="
+        MOSDNS_MAKEFILE="openwrt/feeds/packages/net/mosdns/Makefile"
+        if [ -f "$MOSDNS_MAKEFILE" ]; then
+          sed -i '/GOTOOLCHAIN/d' "$MOSDNS_MAKEFILE"
+          sed -i '/^define Build\/Compile/a\\tGOTOOLCHAIN=auto \\' "$MOSDNS_MAKEFILE"
+          echo "Modified mosdns Makefile"
+        else
+          echo "mosdns Makefile not found (skip)"
+        fi
+
+        # 验证修改是否生效
+        echo "=== Verification ==="
+        echo "golang-build.sh GOTOOLCHAIN lines:"
+        grep -n "GOTOOLCHAIN" "$GOLANG_BUILD_SH" 2>/dev/null || echo "None found"
+        echo "v2ray-plugin Makefile Build/Compile lines:"
+        grep -A2 "^define Build/Compile" "$V2RAY_MAKEFILE" 2>/dev/null || echo "Not found"
+
     - name: Load custom configuration
       run: |
         [ -e files ] && mv files openwrt/files
@@ -131,6 +156,7 @@ jobs:
         cd openwrt/package
         git clone https://github.com/jerrykuku/luci-theme-argon.git
 
+    # ---------- 下载源码 ----------
     - name: Download package
       id: package
       run: |
@@ -140,13 +166,15 @@ jobs:
         find dl -size -1024c -exec ls -l {} \;
         find dl -size -1024c -exec rm -f {} \;
 
+    # ---------- 编译 ----------
     - name: Compile the firmware
       id: compile
       run: |
         cd openwrt
         echo -e "$(nproc) thread compile"
-        export GOTOOLCHAIN=auto   # 双重保险
-        make -j$(nproc) || make -j1 || make -j1 V=s
+        # 双重保险：环境变量 + make 参数
+        export GOTOOLCHAIN=auto
+        make -j$(nproc) GOTOOLCHAIN=auto || make -j1 GOTOOLCHAIN=auto || make -j1 V=s GOTOOLCHAIN=auto
         echo "status=success" >>$GITHUB_OUTPUT
         grep '^CONFIG_TARGET.*DEVICE.*=y' .config | sed -r 's/.*DEVICE_(.*)=y/\1/' > DEVICE_NAME
         [ -s DEVICE_NAME ] && echo "DEVICE_NAME=_$(cat DEVICE_NAME)" >> $GITHUB_ENV
