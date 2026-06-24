@@ -122,31 +122,39 @@ jobs:
         find dl -size -1024c -exec rm -f {} \;
 
     # =============================================================
-    # ★★★ 关键修复：准备并修改 v2ray-plugin 和 mosdns ★★★
+    # ★★★ 最终修复：在编译前强制修改 go.mod ★★★
     # =============================================================
-    - name: Prepare and fix go.mod for v2ray-plugin & mosdns
+    - name: Fix go.mod before compile
       run: |
         cd openwrt
-        # 先编译 libdeflate 工具（解压所需）
-        make tools/libdeflate/compile
+        # 先编译 libdeflate 确保解压工具可用
+        make tools/libdeflate/compile || true
         
-        # 准备 v2ray-plugin 源码
-        make package/v2ray-plugin/prepare
+        # 准备 v2ray-plugin 源码（如果还没准备）
+        make package/v2ray-plugin/prepare || true
         
-        # 修改 go.mod
+        # 查找构建目录并修改 go.mod
+        echo "=== Searching for v2ray-plugin build directory ==="
         V2RAY_BUILD_DIR=$(find build_dir/target-* -maxdepth 1 -type d -name "v2ray-plugin-*" | head -1)
-        if [ -n "$V2RAY_BUILD_DIR" ] && [ -f "$V2RAY_BUILD_DIR/go.mod" ]; then
-          echo "Modifying $V2RAY_BUILD_DIR/go.mod"
-          sed -i 's/^go 1.25.5$/go 1.23/' "$V2RAY_BUILD_DIR/go.mod"
-          head -5 "$V2RAY_BUILD_DIR/go.mod"
+        if [ -n "$V2RAY_BUILD_DIR" ]; then
+          echo "Found: $V2RAY_BUILD_DIR"
+          if [ -f "$V2RAY_BUILD_DIR/go.mod" ]; then
+            echo "Original go.mod:"
+            head -3 "$V2RAY_BUILD_DIR/go.mod"
+            sed -i 's/^go 1.25.5$/go 1.23/' "$V2RAY_BUILD_DIR/go.mod"
+            echo "Modified go.mod:"
+            head -3 "$V2RAY_BUILD_DIR/go.mod"
+          else
+            echo "go.mod not found in $V2RAY_BUILD_DIR"
+          fi
         else
-          echo "Warning: v2ray-plugin build dir not found"
+          echo "v2ray-plugin build dir not found"
         fi
         
-        # 如果 mosdns 存在，同样处理
+        # 处理 mosdns
         MOSDNS_BUILD_DIR=$(find build_dir/target-* -maxdepth 1 -type d -name "mosdns-*" | head -1)
         if [ -n "$MOSDNS_BUILD_DIR" ] && [ -f "$MOSDNS_BUILD_DIR/go.mod" ]; then
-          echo "Modifying $MOSDNS_BUILD_DIR/go.mod"
+          echo "Found mosdns: $MOSDNS_BUILD_DIR"
           sed -i 's/^go 1.2[5-9]/go 1.23/' "$MOSDNS_BUILD_DIR/go.mod"
         fi
 
@@ -155,6 +163,16 @@ jobs:
       run: |
         cd openwrt
         echo -e "$(nproc) thread compile"
+        
+        # 再次确保修改生效（在编译前最后检查）
+        V2RAY_BUILD_DIR=$(find build_dir/target-* -maxdepth 1 -type d -name "v2ray-plugin-*" | head -1)
+        if [ -n "$V2RAY_BUILD_DIR" ] && [ -f "$V2RAY_BUILD_DIR/go.mod" ]; then
+          echo "Final check: $V2RAY_BUILD_DIR/go.mod"
+          head -3 "$V2RAY_BUILD_DIR/go.mod"
+          # 再次强制修改（确保没有被覆盖）
+          sed -i 's/^go 1.25.5$/go 1.23/' "$V2RAY_BUILD_DIR/go.mod"
+        fi
+        
         export GOTOOLCHAIN=auto
         make -j$(nproc) || make -j1 || make -j1 V=s
         echo "status=success" >>$GITHUB_OUTPUT
