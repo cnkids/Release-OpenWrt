@@ -70,12 +70,12 @@ jobs:
         git clone $REPO_URL -b $REPO_BRANCH openwrt
         ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
 
-    # ---------- 安装新版 Go ----------
+    # ---------- 安装新版 Go（1.25.5），但实际不会用到，为了保险还是安装 ----------
     - name: Setup Go (for v2ray-plugin & mosdns)
       uses: actions/setup-go@v6
       with:
         go-version: '1.25.5'
-        cache: false
+        cache: false          # 避免查找 go.mod 缓存失败
 
     - name: Check Go version
       run: go version
@@ -93,49 +93,33 @@ jobs:
     - name: Install feeds
       run: cd openwrt && ./scripts/feeds install -a -p luci
 
-    # ---------- 强化修复 Go 工具链 ----------
-    - name: Fix Go toolchain (force GOTOOLCHAIN=auto)
+    # =============================================================
+    # ★★★ 关键修复：修改 v2ray-plugin 的 go.mod，降低版本要求 ★★★
+    # =============================================================
+    - name: Fix go.mod for v2ray-plugin and mosdns
       run: |
-        echo "=== Fixing golang-build.sh ==="
-        GOLANG_BUILD_SH="openwrt/feeds/packages/lang/golang/golang-build.sh"
-        if [ -f "$GOLANG_BUILD_SH" ]; then
-          sed -i 's/GOTOOLCHAIN=local/GOTOOLCHAIN=auto/g' "$GOLANG_BUILD_SH"
-          echo "Modified golang-build.sh:"
-          grep -n "GOTOOLCHAIN" "$GOLANG_BUILD_SH" || echo "No GOTOOLCHAIN found (already removed)"
+        echo "=== Fixing v2ray-plugin go.mod ==="
+        V2RAY_GOMOD="openwrt/feeds/helloworld/v2ray-plugin/go.mod"
+        if [ -f "$V2RAY_GOMOD" ]; then
+          # 将 go 1.25.5 改为 go 1.23
+          sed -i 's/^go 1.25.5$/go 1.23/' "$V2RAY_GOMOD"
+          echo "Modified go.mod:"
+          head -5 "$V2RAY_GOMOD"
         else
-          echo "Warning: $GOLANG_BUILD_SH not found"
+          echo "Warning: $V2RAY_GOMOD not found"
         fi
 
-        echo "=== Fixing v2ray-plugin Makefile ==="
-        V2RAY_MAKEFILE="openwrt/feeds/helloworld/v2ray-plugin/Makefile"
-        if [ -f "$V2RAY_MAKEFILE" ]; then
-          # 删除所有 GOTOOLCHAIN 设置（无论 local 还是 auto）
-          sed -i '/GOTOOLCHAIN/d' "$V2RAY_MAKEFILE"
-          # 在 Build/Compile 规则中强制添加 GOTOOLCHAIN=auto
-          sed -i '/^define Build\/Compile/a\\tGOTOOLCHAIN=auto \\' "$V2RAY_MAKEFILE"
-          echo "Modified v2ray-plugin Makefile:"
-          grep -A5 -B5 "GOTOOLCHAIN" "$V2RAY_MAKEFILE" || echo "GOTOOLCHAIN inserted"
+        echo "=== Fixing mosdns go.mod (if exists) ==="
+        MOSDNS_GOMOD="openwrt/feeds/packages/net/mosdns/go.mod"
+        if [ -f "$MOSDNS_GOMOD" ]; then
+          # 如果 mosdns 也要求高版本，同样处理
+          sed -i 's/^go 1.2[5-9]/go 1.23/' "$MOSDNS_GOMOD"
+          echo "Modified mosdns go.mod"
         else
-          echo "Warning: $V2RAY_MAKEFILE not found"
+          echo "mosdns go.mod not found (skip)"
         fi
 
-        echo "=== Fixing mosdns Makefile ==="
-        MOSDNS_MAKEFILE="openwrt/feeds/packages/net/mosdns/Makefile"
-        if [ -f "$MOSDNS_MAKEFILE" ]; then
-          sed -i '/GOTOOLCHAIN/d' "$MOSDNS_MAKEFILE"
-          sed -i '/^define Build\/Compile/a\\tGOTOOLCHAIN=auto \\' "$MOSDNS_MAKEFILE"
-          echo "Modified mosdns Makefile"
-        else
-          echo "mosdns Makefile not found (skip)"
-        fi
-
-        # 验证修改是否生效
-        echo "=== Verification ==="
-        echo "golang-build.sh GOTOOLCHAIN lines:"
-        grep -n "GOTOOLCHAIN" "$GOLANG_BUILD_SH" 2>/dev/null || echo "None found"
-        echo "v2ray-plugin Makefile Build/Compile lines:"
-        grep -A2 "^define Build/Compile" "$V2RAY_MAKEFILE" 2>/dev/null || echo "Not found"
-
+    # ---------- 继续常规步骤 ----------
     - name: Load custom configuration
       run: |
         [ -e files ] && mv files openwrt/files
@@ -156,7 +140,6 @@ jobs:
         cd openwrt/package
         git clone https://github.com/jerrykuku/luci-theme-argon.git
 
-    # ---------- 下载源码 ----------
     - name: Download package
       id: package
       run: |
@@ -166,15 +149,12 @@ jobs:
         find dl -size -1024c -exec ls -l {} \;
         find dl -size -1024c -exec rm -f {} \;
 
-    # ---------- 编译 ----------
     - name: Compile the firmware
       id: compile
       run: |
         cd openwrt
         echo -e "$(nproc) thread compile"
-        # 双重保险：环境变量 + make 参数
-        export GOTOOLCHAIN=auto
-        make -j$(nproc) GOTOOLCHAIN=auto || make -j1 GOTOOLCHAIN=auto || make -j1 V=s GOTOOLCHAIN=auto
+        make -j$(nproc) || make -j1 || make -j1 V=s
         echo "status=success" >>$GITHUB_OUTPUT
         grep '^CONFIG_TARGET.*DEVICE.*=y' .config | sed -r 's/.*DEVICE_(.*)=y/\1/' > DEVICE_NAME
         [ -s DEVICE_NAME ] && echo "DEVICE_NAME=_$(cat DEVICE_NAME)" >> $GITHUB_ENV
