@@ -103,7 +103,7 @@ jobs:
           # 在 Build/Compile 开头插入 sed 命令，修改 go.mod
           sed -i '/^define Build\/Compile/a\\t$(SED) -i "s/^go 1.25.5$$/go 1.23/" $(PKG_BUILD_DIR)/go.mod' "$V2RAY_MAKEFILE"
           echo "Patch applied. Build/Compile section now:"
-          grep -A10 "^define Build/Compile" "$V2RAY_MAKEFILE"
+          grep -A10 "^define Build/Compile" "$V2RAY_MAKEFILE" || true
         else
           echo "Warning: $V2RAY_MAKEFILE not found"
         fi
