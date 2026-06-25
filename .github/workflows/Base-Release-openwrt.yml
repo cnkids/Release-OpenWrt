@@ -77,7 +77,10 @@ jobs:
         cache: false
 
     - name: Check Go version
-      run: go version
+      run: |
+        echo "System Go version:"
+        go version
+        which go
 
     - name: Load custom feeds
       run: |
@@ -122,45 +125,54 @@ jobs:
         find dl -size -1024c -exec rm -f {} \;
 
     # =============================================================
-    # ★★★ 编译前全面修复：强制修改 golang-build.sh 和所有 go.mod ★★★
+    # ★★★ 核心修复：强制 OpenWrt 使用新版 Go，并修改 go.mod ★★★
     # =============================================================
-    - name: Fix Go toolchain and go.mod (definitive)
+    - name: Force OpenWrt to use new Go and patch v2ray-plugin
       run: |
         cd openwrt
         
-        # 1. 修改 golang-build.sh，强制 GOTOOLCHAIN=auto
+        # 1. 获取新版 Go 的路径
+        NEW_GO=$(which go)
+        echo "New Go path: $NEW_GO"
+        $NEW_GO version
+        
+        # 2. 覆盖 OpenWrt 的 go 链接
+        mkdir -p staging_dir/host/bin
+        ln -sf $NEW_GO staging_dir/host/bin/go
+        echo "OpenWrt will now use:"
+        staging_dir/host/bin/go version
+        
+        # 3. 修改 golang-build.sh，强制 GOTOOLCHAIN=auto
         GOLANG_BUILD="feeds/packages/lang/golang/golang-build.sh"
         if [ -f "$GOLANG_BUILD" ]; then
           sed -i 's/GOTOOLCHAIN=local/GOTOOLCHAIN=auto/g' "$GOLANG_BUILD"
-          echo "Fixed golang-build.sh:"
-          grep -n "GOTOOLCHAIN" "$GOLANG_BUILD" || true
+          echo "Modified golang-build.sh"
         fi
         
-        # 2. 编译 libdeflate，确保解压工具可用
+        # 4. 准备 v2ray-plugin 源码
         make tools/libdeflate/compile || true
-        
-        # 3. 准备 v2ray-plugin 源码（如果尚未准备）
         make package/v2ray-plugin/prepare || true
         
-        # 4. 查找 v2ray-plugin 构建目录，用 go mod edit 修改版本
+        # 5. 修改 go.mod 版本
         V2RAY_BUILD_DIR=$(find build_dir/target-* -maxdepth 1 -type d -name "v2ray-plugin-*" | head -1)
         if [ -n "$V2RAY_BUILD_DIR" ] && [ -f "$V2RAY_BUILD_DIR/go.mod" ]; then
-          echo "Modifying $V2RAY_BUILD_DIR/go.mod with go mod edit"
+          echo "Modifying $V2RAY_BUILD_DIR/go.mod"
           cd "$V2RAY_BUILD_DIR"
-          go mod edit -go=1.23
-          echo "New go version:"
+          # 使用 go mod edit 官方工具
+          $NEW_GO mod edit -go=1.23
+          echo "New go.mod:"
           head -3 go.mod
           cd - > /dev/null
         else
           echo "Warning: v2ray-plugin build dir not found"
         fi
         
-        # 5. 同样处理 mosdns
+        # 6. 同样处理 mosdns
         MOSDNS_BUILD_DIR=$(find build_dir/target-* -maxdepth 1 -type d -name "mosdns-*" | head -1)
         if [ -n "$MOSDNS_BUILD_DIR" ] && [ -f "$MOSDNS_BUILD_DIR/go.mod" ]; then
           echo "Modifying mosdns go.mod"
           cd "$MOSDNS_BUILD_DIR"
-          go mod edit -go=1.23
+          $NEW_GO mod edit -go=1.23
           cd - > /dev/null
         fi
 
@@ -169,14 +181,19 @@ jobs:
       run: |
         cd openwrt
         echo -e "$(nproc) thread compile"
-        # 强制环境变量
-        export GOTOOLCHAIN=auto
-        # 再检查一次 v2ray-plugin 的 go.mod 版本（保险）
+        
+        # 再次确认 OpenWrt 使用的 go 版本
+        echo "OpenWrt go version:"
+        staging_dir/host/bin/go version || true
+        
+        # 最后再检查 v2ray-plugin 的 go.mod
         V2RAY_BUILD_DIR=$(find build_dir/target-* -maxdepth 1 -type d -name "v2ray-plugin-*" | head -1)
         if [ -n "$V2RAY_BUILD_DIR" ]; then
-          echo "Final check: $V2RAY_BUILD_DIR/go.mod"
+          echo "Final go.mod:"
           head -3 "$V2RAY_BUILD_DIR/go.mod" || true
         fi
+        
+        export GOTOOLCHAIN=auto
         make -j$(nproc) || make -j1 || make -j1 V=s
         echo "status=success" >>$GITHUB_OUTPUT
         grep '^CONFIG_TARGET.*DEVICE.*=y' .config | sed -r 's/.*DEVICE_(.*)=y/\1/' > DEVICE_NAME
