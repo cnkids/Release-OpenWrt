@@ -92,29 +92,6 @@ jobs:
     - name: Install feeds
       run: cd openwrt && ./scripts/feeds install -a -p luci
 
-    # =============================================================
-    # ★★★ 核心修复：修改 v2ray-plugin 的 Makefile ★★★
-    # =============================================================
-    - name: Patch v2ray-plugin Makefile to fix go.mod
-      run: |
-        V2RAY_MAKEFILE="openwrt/feeds/helloworld/v2ray-plugin/Makefile"
-        if [ -f "$V2RAY_MAKEFILE" ]; then
-          echo "Patching $V2RAY_MAKEFILE"
-          # 在 Build/Compile 开头插入 sed 命令，修改 go.mod
-          sed -i '/^define Build\/Compile/a\\t$(SED) -i "s/^go 1.25.5$$/go 1.23/" $(PKG_BUILD_DIR)/go.mod' "$V2RAY_MAKEFILE"
-          echo "Patch applied. Build/Compile section now:"
-          grep -A10 "^define Build/Compile" "$V2RAY_MAKEFILE" || true
-        else
-          echo "Warning: $V2RAY_MAKEFILE not found"
-        fi
-
-        # 同样处理 mosdns（如果存在）
-        MOSDNS_MAKEFILE="openwrt/feeds/packages/net/mosdns/Makefile"
-        if [ -f "$MOSDNS_MAKEFILE" ]; then
-          sed -i '/^define Build\/Compile/a\\t$(SED) -i "s/^go 1.2[5-9]/go 1.23/" $(PKG_BUILD_DIR)/go.mod' "$MOSDNS_MAKEFILE"
-          echo "Patched mosdns Makefile"
-        fi
-
     - name: Load custom configuration
       run: |
         [ -e files ] && mv files openwrt/files
@@ -145,21 +122,46 @@ jobs:
         find dl -size -1024c -exec rm -f {} \;
 
     # =============================================================
-    # 额外保险：在编译前再强制修改一次 build_dir 中的 go.mod
+    # ★★★ 编译前全面修复：强制修改 golang-build.sh 和所有 go.mod ★★★
     # =============================================================
-    - name: Final fix go.mod in build_dir
+    - name: Fix Go toolchain and go.mod (definitive)
       run: |
         cd openwrt
-        # 先编译 libdeflate 确保解压工具可用
+        
+        # 1. 修改 golang-build.sh，强制 GOTOOLCHAIN=auto
+        GOLANG_BUILD="feeds/packages/lang/golang/golang-build.sh"
+        if [ -f "$GOLANG_BUILD" ]; then
+          sed -i 's/GOTOOLCHAIN=local/GOTOOLCHAIN=auto/g' "$GOLANG_BUILD"
+          echo "Fixed golang-build.sh:"
+          grep -n "GOTOOLCHAIN" "$GOLANG_BUILD" || true
+        fi
+        
+        # 2. 编译 libdeflate，确保解压工具可用
         make tools/libdeflate/compile || true
-        # 准备 v2ray-plugin 源码（确保 build_dir 存在）
+        
+        # 3. 准备 v2ray-plugin 源码（如果尚未准备）
         make package/v2ray-plugin/prepare || true
         
+        # 4. 查找 v2ray-plugin 构建目录，用 go mod edit 修改版本
         V2RAY_BUILD_DIR=$(find build_dir/target-* -maxdepth 1 -type d -name "v2ray-plugin-*" | head -1)
         if [ -n "$V2RAY_BUILD_DIR" ] && [ -f "$V2RAY_BUILD_DIR/go.mod" ]; then
-          echo "Final modifying $V2RAY_BUILD_DIR/go.mod"
-          sed -i 's/^go 1.25.5$/go 1.23/' "$V2RAY_BUILD_DIR/go.mod"
-          head -3 "$V2RAY_BUILD_DIR/go.mod"
+          echo "Modifying $V2RAY_BUILD_DIR/go.mod with go mod edit"
+          cd "$V2RAY_BUILD_DIR"
+          go mod edit -go=1.23
+          echo "New go version:"
+          head -3 go.mod
+          cd - > /dev/null
+        else
+          echo "Warning: v2ray-plugin build dir not found"
+        fi
+        
+        # 5. 同样处理 mosdns
+        MOSDNS_BUILD_DIR=$(find build_dir/target-* -maxdepth 1 -type d -name "mosdns-*" | head -1)
+        if [ -n "$MOSDNS_BUILD_DIR" ] && [ -f "$MOSDNS_BUILD_DIR/go.mod" ]; then
+          echo "Modifying mosdns go.mod"
+          cd "$MOSDNS_BUILD_DIR"
+          go mod edit -go=1.23
+          cd - > /dev/null
         fi
 
     - name: Compile the firmware
@@ -167,7 +169,14 @@ jobs:
       run: |
         cd openwrt
         echo -e "$(nproc) thread compile"
+        # 强制环境变量
         export GOTOOLCHAIN=auto
+        # 再检查一次 v2ray-plugin 的 go.mod 版本（保险）
+        V2RAY_BUILD_DIR=$(find build_dir/target-* -maxdepth 1 -type d -name "v2ray-plugin-*" | head -1)
+        if [ -n "$V2RAY_BUILD_DIR" ]; then
+          echo "Final check: $V2RAY_BUILD_DIR/go.mod"
+          head -3 "$V2RAY_BUILD_DIR/go.mod" || true
+        fi
         make -j$(nproc) || make -j1 || make -j1 V=s
         echo "status=success" >>$GITHUB_OUTPUT
         grep '^CONFIG_TARGET.*DEVICE.*=y' .config | sed -r 's/.*DEVICE_(.*)=y/\1/' > DEVICE_NAME
