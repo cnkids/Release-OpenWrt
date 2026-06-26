@@ -70,16 +70,6 @@ jobs:
         git clone $REPO_URL -b $REPO_BRANCH openwrt
         ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
 
-    # 安装新版 Go（仅用于备用，但 OpenWrt 可能不会使用）
-    - name: Setup Go (for v2ray-plugin & mosdns)
-      uses: actions/setup-go@v6
-      with:
-        go-version: '1.25.5'
-        cache: false
-
-    - name: Check Go version
-      run: go version
-
     - name: Load custom feeds
       run: |
         [ -e $FEEDS_CONF ] && mv $FEEDS_CONF openwrt/feeds.conf.default
@@ -92,6 +82,35 @@ jobs:
 
     - name: Install feeds
       run: cd openwrt && ./scripts/feeds install -a -p luci
+
+    # ============================================================
+    # 补丁：修复 v2ray-plugin 和 mosdns 中错误的 go.mod 版本要求
+    # ============================================================
+    - name: Patch go.mod for v2ray-plugin and mosdns
+      run: |
+        # 为 v2ray-plugin 创建补丁
+        mkdir -p openwrt/package/feeds/helloworld/v2ray-plugin/patches
+        cat > openwrt/package/feeds/helloworld/v2ray-plugin/patches/001-fix-go-version.patch <<'EOF'
+        --- a/go.mod
+        +++ b/go.mod
+        @@ -1,3 +1,3 @@
+         module github.com/teddysun/v2ray-plugin
+         
+        -go 1.25.5
+        +go 1.21
+        EOF
+
+        # 为 mosdns 创建补丁（同样修复高版本要求）
+        mkdir -p openwrt/package/feeds/helloworld/mosdns/patches
+        cat > openwrt/package/feeds/helloworld/mosdns/patches/001-fix-go-version.patch <<'EOF'
+        --- a/go.mod
+        +++ b/go.mod
+        @@ -1,3 +1,3 @@
+         module github.com/IrineSistiana/mosdns/v5
+         
+        -go 1.25.5
+        +go 1.21
+        EOF
 
     - name: Load custom configuration
       run: |
@@ -122,42 +141,12 @@ jobs:
         find dl -size -1024c -exec ls -l {} \;
         find dl -size -1024c -exec rm -f {} \;
 
-    # =============================================================
-    # ★★★ 核心修复：编译前直接修改 v2ray-plugin 和 mosdns 的 go.mod ★★★
-    # =============================================================
     - name: Compile the firmware
       id: compile
       run: |
         cd openwrt
-        
-        # 1. 先准备 v2ray-plugin 源码（如果尚未解压）
-        make package/v2ray-plugin/prepare || true
-        make package/mosdns/prepare || true
-        
-        # 2. 修改 v2ray-plugin 的 go.mod
-        V2RAY_BUILD_DIR=$(find build_dir/target-* -maxdepth 1 -type d -name "v2ray-plugin-*" | head -1)
-        if [ -n "$V2RAY_BUILD_DIR" ] && [ -f "$V2RAY_BUILD_DIR/go.mod" ]; then
-          echo "Modifying $V2RAY_BUILD_DIR/go.mod"
-          sed -i 's/^go 1.25.5$/go 1.23/' "$V2RAY_BUILD_DIR/go.mod"
-          echo "New go.mod:"
-          head -3 "$V2RAY_BUILD_DIR/go.mod"
-        else
-          echo "Warning: v2ray-plugin build dir not found"
-        fi
-        
-        # 3. 修改 mosdns 的 go.mod（如果存在）
-        MOSDNS_BUILD_DIR=$(find build_dir/target-* -maxdepth 1 -type d -name "mosdns-*" | head -1)
-        if [ -n "$MOSDNS_BUILD_DIR" ] && [ -f "$MOSDNS_BUILD_DIR/go.mod" ]; then
-          echo "Modifying $MOSDNS_BUILD_DIR/go.mod"
-          sed -i 's/^go 1.2[5-9]/go 1.23/' "$MOSDNS_BUILD_DIR/go.mod"
-          head -3 "$MOSDNS_BUILD_DIR/go.mod"
-        fi
-        
-        # 4. 开始编译
         echo -e "$(nproc) thread compile"
-        export GOTOOLCHAIN=auto
         make -j$(nproc) || make -j1 || make -j1 V=s
-        
         echo "status=success" >>$GITHUB_OUTPUT
         grep '^CONFIG_TARGET.*DEVICE.*=y' .config | sed -r 's/.*DEVICE_(.*)=y/\1/' > DEVICE_NAME
         [ -s DEVICE_NAME ] && echo "DEVICE_NAME=_$(cat DEVICE_NAME)" >> $GITHUB_ENV
