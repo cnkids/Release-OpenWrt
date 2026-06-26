@@ -76,11 +76,10 @@ jobs:
     - name: Replace golang package in feeds
       run: |
         cd openwrt
-        # 移除原有的旧版 golang 包
         rm -rf feeds/packages/lang/golang
-        # 克隆社区维护的新版 golang 包（支持 Go 1.23.x，可满足大多数要求）
-        git clone https://github.com/sbwml/packages_lang_golang -b 1.23.x feeds/packages/lang/golang
-        echo "Replaced golang package with version 1.23.x"
+        # 使用社区维护的 golang 包（默认 master 分支，通常是最新版）
+        git clone https://github.com/sbwml/packages_lang_golang feeds/packages/lang/golang
+        echo "Replaced golang package with community version"
 
     - name: Load custom feeds
       run: |
@@ -134,7 +133,7 @@ jobs:
         # 在编译前，对所有已下载的 Go 项目修改 go.mod，降低版本要求
         find build_dir/ -name "go.mod" -exec sed -i 's/^go 1\.2[4-9]/go 1.23/' {} \; 2>/dev/null || true
         
-        # 强制 GOTOOLCHAIN=auto（即使替换了 golang 包，也保留此设置）
+        # 强制 GOTOOLCHAIN=auto
         export GOTOOLCHAIN=auto
         
         echo -e "$(nproc) thread compile"
