@@ -113,30 +113,25 @@ jobs:
         find dl -size -1024c -exec rm -f {} \;
 
     # ================================================================
-    # 修复 v2ray-core 模块中错误的 go 1.25.5 要求
+    # 核心修复：直接修改 go-mod-cache 里 v2ray-core 的 go.mod，
+    # 把不存在的 go 1.25.x 改成 1.21，避免编译被拒绝
     # ================================================================
-    - name: Fix wrong Go version in v2ray-core module cache
+    - name: Fix invalid Go version in v2ray-core module cache
       run: |
         cd openwrt
-        echo "Searching for v2ray-core module in go-mod-cache..."
-        # 找到 v2fly 的 v2ray-core 缓存目录（可能是 v5.49.0 或其他版本）
-        CORE_DIRS=$(find dl/go-mod-cache -type d -path "*/v2fly/v2ray-core/*" 2>/dev/null)
-        FIXED=0
-        for d in $CORE_DIRS; do
-          if [ -f "$d/go.mod" ]; then
-            echo "Patching $d/go.mod"
-            chmod -R +w "$d" 2>/dev/null || true
-            # 将 go 1.25.x 或 1.26+ 等高版本改成 1.21
-            sed -i 's/^go 1\.2[5-9].*/go 1.21/' "$d/go.mod"
-            head -3 "$d/go.mod"
-            FIXED=1
-          fi
-        done
-        if [ $FIXED -eq 0 ]; then
-          echo "WARNING: No v2ray-core module found in cache. Build may still fail."
-        else
-          echo "v2ray-core module successfully patched."
+        if [ ! -d "dl/go-mod-cache" ]; then
+          echo "No go-mod-cache directory found, skipping fix."
+          exit 0
         fi
+        echo "Patching v2ray-core go.mod files..."
+        find dl/go-mod-cache -path "*/v2fly/v2ray-core/*" -name "go.mod" \
+          -exec sh -c '
+            echo "Patching: $1"
+            chmod -R +w "$1" 2>/dev/null || true
+            sed -i "s/^go 1\.2[5-9].*/go 1.21/" "$1"
+            echo "New version line: $(head -1 "$1")"
+          ' _ {} \; || true
+        echo "v2ray-core patch step completed."
 
     - name: Compile the firmware
       id: compile
