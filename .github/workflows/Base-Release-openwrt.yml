@@ -113,38 +113,24 @@ jobs:
         find dl -size -1024c -exec rm -f {} \;
 
     # ================================================================
-    # 修复所有 go.mod 中的非法 Go 版本 (>=1.25 改为 1.21)
+    # ★ 最终修复：在 dl 目录内直接修改源码包里的 go.mod ★
     # ================================================================
-    - name: Fix invalid Go version in all go.mod files
+    - name: Patch go.mod inside source tarballs
       run: |
-        cd openwrt
-        echo "=== Patching source tarballs ==="
-        for TAR in dl/v2ray-plugin-*.tar.gz dl/mosdns-*.tar.gz; do
+        cd openwrt/dl
+        for TAR in v2ray-plugin-*.tar.gz mosdns-*.tar.gz; do
           if [ -f "$TAR" ]; then
             DIR="${TAR%.tar.gz}"
-            echo "Extracting $TAR ..."
+            echo "Patching $TAR ..."
             tar xzf "$TAR"
-            # 将该目录下所有 go.mod 中的 go >= 1.25 改为 1.21
+            # 强制将所有 go 版本要求 >= 1.25 的改成 1.21
             find "$DIR" -name go.mod -exec sed -i 's/^go 1\.2[5-9].*/go 1.21/' {} \;
             find "$DIR" -name go.mod -exec sed -i 's/^go 1\.[3-9][0-9].*/go 1.21/' {} \;
             tar czf "$TAR" "$DIR"
             rm -rf "$DIR"
-            echo "Patched $TAR"
           fi
         done
-
-        echo "=== Patching go-mod-cache ==="
-        if [ -d "dl/go-mod-cache" ]; then
-          # 将所有模块缓存里的 go >= 1.25 也改成 1.21
-          find dl/go-mod-cache -name go.mod \
-            -exec sed -i 's/^go 1\.2[5-9].*/go 1.21/' {} \; \
-            -exec sed -i 's/^go 1\.[3-9][0-9].*/go 1.21/' {} \;
-          echo "go-mod-cache patched"
-        else
-          echo "No go-mod-cache directory, skip"
-        fi
-
-        echo "=== All go.mod fixes applied ==="
+        echo "All tarballs patched."
 
     - name: Compile the firmware
       id: compile
