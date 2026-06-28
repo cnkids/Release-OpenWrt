@@ -113,25 +113,24 @@ jobs:
         find dl -size -1024c -exec rm -f {} \;
 
     # ================================================================
-    # 核心修复：直接修改 go-mod-cache 里 v2ray-core 的 go.mod，
-    # 把不存在的 go 1.25.x 改成 1.21，避免编译被拒绝
+    # 关键修复：直接把下载好的源码包里的 go.mod 版本改掉
     # ================================================================
-    - name: Fix invalid Go version in v2ray-core module cache
+    - name: Fix go.mod inside source tarballs
       run: |
-        cd openwrt
-        if [ ! -d "dl/go-mod-cache" ]; then
-          echo "No go-mod-cache directory found, skipping fix."
-          exit 0
-        fi
-        echo "Patching v2ray-core go.mod files..."
-        find dl/go-mod-cache -path "*/v2fly/v2ray-core/*" -name "go.mod" \
-          -exec sh -c '
-            echo "Patching: $1"
-            chmod -R +w "$1" 2>/dev/null || true
-            sed -i "s/^go 1\.2[5-9].*/go 1.21/" "$1"
-            echo "New version line: $(head -1 "$1")"
-          ' _ {} \; || true
-        echo "v2ray-core patch step completed."
+        cd openwrt/dl
+        # 遍历 v2ray-plugin 和 mosdns 的源码包，解压→修改→重新打包
+        for TAR in v2ray-plugin-*.tar.gz mosdns-*.tar.gz; do
+          if [ -f "$TAR" ]; then
+            DIR="${TAR%.tar.gz}"
+            echo "Patching $TAR ..."
+            tar xzf "$TAR"
+            # 将该目录下所有 go.mod 中的 "go 1.25" 及以上版本改为 1.21
+            find "$DIR" -name go.mod -exec sed -i 's/^go 1\.2[5-9].*/go 1.21/' {} \;
+            tar czf "$TAR" "$DIR"
+            rm -rf "$DIR"
+          fi
+        done
+        echo "Tarball patching done."
 
     - name: Compile the firmware
       id: compile
