@@ -86,24 +86,24 @@ jobs:
     # ================================================================
     # 跳过 v2ray-plugin 和 mosdns 的哈希验证
     # ================================================================
-    - name: Skip hash check for problematic packages
+    - name: Skip hash check for v2ray-plugin and mosdns
       run: |
         # v2ray-plugin
-        VP_MAKEFILE=openwrt/package/feeds/helloworld/v2ray-plugin/Makefile
-        if [ -f "$VP_MAKEFILE" ]; then
-          sed -i 's/^PKG_HASH:=.*/PKG_HASH:=skip/' "$VP_MAKEFILE"
+        V2RAY_MAKEFILE=openwrt/package/feeds/helloworld/v2ray-plugin/Makefile
+        if [ -f "$V2RAY_MAKEFILE" ]; then
+          sed -i 's/^PKG_HASH:=.*/PKG_HASH:=skip/' "$V2RAY_MAKEFILE"
           echo "Skipped hash check for v2ray-plugin"
         else
-          echo "v2ray-plugin Makefile not found, skip"
+          echo "v2ray-plugin Makefile not found"
         fi
 
-        # mosdns (位于 feeds/packages/net)
-        MOS_MAKEFILE=openwrt/package/feeds/packages/net/mosdns/Makefile
-        if [ -f "$MOS_MAKEFILE" ]; then
-          sed -i 's/^PKG_HASH:=.*/PKG_HASH:=skip/' "$MOS_MAKEFILE"
+        # mosdns
+        MOSDNS_MAKEFILE=openwrt/package/feeds/packages/net/mosdns/Makefile
+        if [ -f "$MOSDNS_MAKEFILE" ]; then
+          sed -i 's/^PKG_HASH:=.*/PKG_HASH:=skip/' "$MOSDNS_MAKEFILE"
           echo "Skipped hash check for mosdns"
         else
-          echo "mosdns Makefile not found, skip"
+          echo "mosdns Makefile not found"
         fi
 
     - name: Load custom configuration
@@ -136,7 +136,7 @@ jobs:
         find dl -size -1024c -exec rm -f {} \;
 
     # ================================================================
-    # 修改源码包中的 go.mod，把 ≥1.25 的版本要求降为 1.21
+    # 修复 1：修改源码包中的 go.mod（v2ray-plugin, mosdns）
     # ================================================================
     - name: Patch go.mod inside source tarballs
       run: |
@@ -153,7 +153,23 @@ jobs:
             rm -rf "$DIR"
           fi
         done
-        echo "All tarballs patched."
+        echo "Source tarballs patched."
+
+    # ================================================================
+    # 修复 2：修改 go-mod-cache 中所有 go.mod 的 go 版本（解决依赖问题）
+    # ================================================================
+    - name: Patch go.mod in go-mod-cache
+      run: |
+        cd openwrt
+        if [ -d "dl/go-mod-cache" ]; then
+          echo "Patching all go.mod files in go-mod-cache..."
+          find dl/go-mod-cache -name go.mod \
+            -exec sed -i 's/^go 1\.2[5-9].*/go 1.21/' {} \; \
+            -exec sed -i 's/^go 1\.[3-9][0-9].*/go 1.21/' {} \;
+          echo "go-mod-cache patched."
+        else
+          echo "No go-mod-cache directory found, skip."
+        fi
 
     - name: Compile the firmware
       id: compile
