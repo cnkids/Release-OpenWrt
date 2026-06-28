@@ -83,11 +83,28 @@ jobs:
     - name: Install feeds
       run: cd openwrt && ./scripts/feeds install -a -p luci
 
-    # ★ 绕过哈希验证，允许我们修改源码包
-    - name: Skip hash check for v2ray-plugin and mosdns
+    # ================================================================
+    # 跳过 v2ray-plugin 和 mosdns 的哈希验证
+    # ================================================================
+    - name: Skip hash check for problematic packages
       run: |
-        sed -i 's/^PKG_HASH:=.*/PKG_HASH:=skip/' openwrt/package/feeds/helloworld/v2ray-plugin/Makefile
-        sed -i 's/^PKG_HASH:=.*/PKG_HASH:=skip/' openwrt/package/feeds/helloworld/mosdns/Makefile
+        # v2ray-plugin
+        VP_MAKEFILE=openwrt/package/feeds/helloworld/v2ray-plugin/Makefile
+        if [ -f "$VP_MAKEFILE" ]; then
+          sed -i 's/^PKG_HASH:=.*/PKG_HASH:=skip/' "$VP_MAKEFILE"
+          echo "Skipped hash check for v2ray-plugin"
+        else
+          echo "v2ray-plugin Makefile not found, skip"
+        fi
+
+        # mosdns (位于 feeds/packages/net)
+        MOS_MAKEFILE=openwrt/package/feeds/packages/net/mosdns/Makefile
+        if [ -f "$MOS_MAKEFILE" ]; then
+          sed -i 's/^PKG_HASH:=.*/PKG_HASH:=skip/' "$MOS_MAKEFILE"
+          echo "Skipped hash check for mosdns"
+        else
+          echo "mosdns Makefile not found, skip"
+        fi
 
     - name: Load custom configuration
       run: |
@@ -118,7 +135,9 @@ jobs:
         find dl -size -1024c -exec ls -l {} \;
         find dl -size -1024c -exec rm -f {} \;
 
-    # ★ 直接修改已下载的源码包（因为跳过了哈希，不会被删除）
+    # ================================================================
+    # 修改源码包中的 go.mod，把 ≥1.25 的版本要求降为 1.21
+    # ================================================================
     - name: Patch go.mod inside source tarballs
       run: |
         cd openwrt/dl
@@ -127,7 +146,7 @@ jobs:
             DIR="${TAR%.tar.gz}"
             echo "Patching $TAR ..."
             tar xzf "$TAR"
-            # 将所有 go 版本 >=1.25 的改成 1.21
+            # 将所有 go 版本 >= 1.25 改成 1.21
             find "$DIR" -name go.mod -exec sed -i 's/^go 1\.2[5-9].*/go 1.21/' {} \;
             find "$DIR" -name go.mod -exec sed -i 's/^go 1\.[3-9][0-9].*/go 1.21/' {} \;
             tar czf "$TAR" "$DIR"
