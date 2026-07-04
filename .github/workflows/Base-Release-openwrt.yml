@@ -84,24 +84,28 @@ jobs:
       run: cd openwrt && ./scripts/feeds install -a -p luci
 
     # ================================================================
-    # 跳过 v2ray-plugin 和 mosdns 的哈希验证
+    # ★ 最终解决方案：允许 Go 自动处理工具链版本
     # ================================================================
-    - name: Skip hash check for v2ray-plugin and mosdns
+    - name: Allow auto Go toolchain for v2ray-plugin and mosdns
       run: |
         # v2ray-plugin
         V2RAY_MAKEFILE=openwrt/package/feeds/helloworld/v2ray-plugin/Makefile
         if [ -f "$V2RAY_MAKEFILE" ]; then
+          # 跳过哈希，避免后续下载被干扰（可选但建议保留）
           sed -i 's/^PKG_HASH:=.*/PKG_HASH:=skip/' "$V2RAY_MAKEFILE"
-          echo "Skipped hash check for v2ray-plugin"
+          # 关键：覆盖 GOTOOLCHAIN 为 auto
+          echo 'GO_PKG_TARGET_VARS += GOTOOLCHAIN=auto' >> "$V2RAY_MAKEFILE"
+          echo "GOTOOLCHAIN=auto applied for v2ray-plugin"
         else
           echo "v2ray-plugin Makefile not found"
         fi
 
-        # mosdns (注意路径在 feeds/packages/net/)
+        # mosdns (位于 feeds/packages/net)
         MOSDNS_MAKEFILE=openwrt/package/feeds/packages/net/mosdns/Makefile
         if [ -f "$MOSDNS_MAKEFILE" ]; then
           sed -i 's/^PKG_HASH:=.*/PKG_HASH:=skip/' "$MOSDNS_MAKEFILE"
-          echo "Skipped hash check for mosdns"
+          echo 'GO_PKG_TARGET_VARS += GOTOOLCHAIN=auto' >> "$MOSDNS_MAKEFILE"
+          echo "GOTOOLCHAIN=auto applied for mosdns"
         else
           echo "mosdns Makefile not found"
         fi
@@ -135,50 +139,7 @@ jobs:
         find dl -size -1024c -exec ls -l {} \;
         find dl -size -1024c -exec rm -f {} \;
 
-    # ================================================================
-    # ★ 修复 1：修改源码包中的 go.mod（v2ray-plugin, mosdns）
-    # ================================================================
-    - name: Patch go.mod inside source tarballs
-      run: |
-        cd openwrt/dl
-        for TAR in v2ray-plugin-*.tar.gz mosdns-*.tar.gz; do
-          if [ -f "$TAR" ]; then
-            DIR="${TAR%.tar.gz}"
-            echo "Patching $TAR ..."
-            tar xzf "$TAR"
-            # 将所有 go 版本 >= 1.25 改成 1.21
-            find "$DIR" -name go.mod -exec sed -i 's/^go 1\.2[5-9].*/go 1.21/' {} \;
-            find "$DIR" -name go.mod -exec sed -i 's/^go 1\.[3-9][0-9].*/go 1.21/' {} \;
-            tar czf "$TAR" "$DIR"
-            rm -rf "$DIR"
-          fi
-        done
-        echo "Source tarballs patched."
-
-    # ================================================================
-    # ★ 修复 2：修改 go-mod-cache 中所有 go.mod（解决 v2ray-core 等依赖）
-    # ================================================================
-    - name: Patch go.mod in go-mod-cache
-      run: |
-        cd openwrt
-        if [ -d "dl/go-mod-cache" ]; then
-          echo "Patching all go.mod files in go-mod-cache..."
-          find dl/go-mod-cache -name go.mod \
-            -exec sed -i 's/^go 1\.2[5-9].*/go 1.21/' {} \; \
-            -exec sed -i 's/^go 1\.[3-9][0-9].*/go 1.21/' {} \;
-          echo "go-mod-cache patched."
-        else
-          echo "No go-mod-cache directory, skip."
-        fi
-
-    # ★ 删除旧的 build 目录，强制重新解压我们改好的源码包
-    - name: Remove old build dirs to force re-extract
-      run: |
-        cd openwrt
-        rm -rf build_dir/target-*/v2ray-plugin-*
-        rm -rf build_dir/target-*/mosdns-*
-        echo "Old build dirs removed."
-
+    # ★ 不需要修改任何源码，直接编译
     - name: Compile the firmware
       id: compile
       run: |
