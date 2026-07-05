@@ -84,20 +84,17 @@ jobs:
       run: cd openwrt && ./scripts/feeds install -a -p luci
 
     # ================================================================
-    # 跳过 v2ray-plugin 和 mosdns 的哈希验证
+    # ★ 唯一修改：将 golang 构建脚本中的 GOTOOLCHAIN=local 改为 auto
     # ================================================================
-    - name: Skip hash check for problematic packages
+    - name: Allow auto Go toolchain
       run: |
-        V2RAY_MAKEFILE=openwrt/package/feeds/helloworld/v2ray-plugin/Makefile
-        if [ -f "$V2RAY_MAKEFILE" ]; then
-          sed -i 's/^PKG_HASH:=.*/PKG_HASH:=skip/' "$V2RAY_MAKEFILE"
-          echo "Skipped hash check for v2ray-plugin"
-        fi
-
-        MOSDNS_MAKEFILE=openwrt/package/feeds/packages/net/mosdns/Makefile
-        if [ -f "$MOSDNS_MAKEFILE" ]; then
-          sed -i 's/^PKG_HASH:=.*/PKG_HASH:=skip/' "$MOSDNS_MAKEFILE"
-          echo "Skipped hash check for mosdns"
+        GOLANG_BUILD_SH=openwrt/feeds/packages/lang/golang/golang-build.sh
+        if [ -f "$GOLANG_BUILD_SH" ]; then
+          sed -i 's/GOTOOLCHAIN=local/GOTOOLCHAIN=auto/g' "$GOLANG_BUILD_SH"
+          echo "Changed GOTOOLCHAIN to auto in golang-build.sh"
+        else
+          echo "golang-build.sh not found at expected path, searching..."
+          find openwrt -name golang-build.sh -exec sed -i 's/GOTOOLCHAIN=local/GOTOOLCHAIN=auto/g' {} \;
         fi
 
     - name: Load custom configuration
@@ -129,63 +126,7 @@ jobs:
         find dl -size -1024c -exec ls -l {} \;
         find dl -size -1024c -exec rm -f {} \;
 
-    # ================================================================
-    # 修复 1：修改源码包里的 go.mod
-    # ================================================================
-    - name: Patch go.mod inside source tarballs
-      run: |
-        cd openwrt/dl
-        for TAR in v2ray-plugin-*.tar.gz mosdns-*.tar.gz; do
-          if [ -f "$TAR" ]; then
-            DIR="${TAR%.tar.gz}"
-            echo "Patching $TAR ..."
-            tar xzf "$TAR"
-            find "$DIR" -name go.mod -exec sed -i 's/^go 1\.2[5-9].*/go 1.21/' {} \;
-            find "$DIR" -name go.mod -exec sed -i 's/^go 1\.[3-9][0-9].*/go 1.21/' {} \;
-            tar czf "$TAR" "$DIR"
-            rm -rf "$DIR"
-          fi
-        done
-        echo "Source tarballs patched."
-
-    # ================================================================
-    # 修复 2：修改 go-mod-cache 中所有 go.mod（尤其是 v2ray-core）
-    # ================================================================
-    - name: Patch go.mod in go-mod-cache
-      run: |
-        cd openwrt
-        if [ -d "dl/go-mod-cache" ]; then
-          echo "Patching all go.mod files in go-mod-cache..."
-          find dl/go-mod-cache -name go.mod \
-            -exec sed -i 's/^go 1\.2[5-9].*/go 1.21/' {} \; \
-            -exec sed -i 's/^go 1\.[3-9][0-9].*/go 1.21/' {} \;
-          echo "go-mod-cache patched."
-        else
-          echo "No go-mod-cache directory, skip."
-        fi
-
-    # ================================================================
-    # 修复 3：把 golang-build.sh 中的 GOTOOLCHAIN=local 改为 auto
-    # ================================================================
-    - name: Allow auto Go toolchain in build script
-      run: |
-        GOLANG_BUILD_SH=openwrt/feeds/packages/lang/golang/golang-build.sh
-        if [ -f "$GOLANG_BUILD_SH" ]; then
-          sed -i 's/GOTOOLCHAIN=local/GOTOOLCHAIN=auto/g' "$GOLANG_BUILD_SH"
-          echo "Changed GOTOOLCHAIN to auto in golang-build.sh"
-        else
-          echo "golang-build.sh not found, trying to find it..."
-          find openwrt -name golang-build.sh -exec sed -i 's/GOTOOLCHAIN=local/GOTOOLCHAIN=auto/g' {} \;
-        fi
-
-    # 删除旧的 build 目录，强制重新解压
-    - name: Remove old build dirs
-      run: |
-        cd openwrt
-        rm -rf build_dir/target-*/v2ray-plugin-*
-        rm -rf build_dir/target-*/mosdns-*
-        echo "Old build dirs removed."
-
+    # ★ 注意：不修改任何源码，不跳 hash，直接编译
     - name: Compile the firmware
       id: compile
       run: |
