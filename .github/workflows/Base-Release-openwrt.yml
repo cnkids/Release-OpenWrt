@@ -63,6 +63,21 @@ jobs:
         sudo mkdir -p /workdir
         sudo chown $USER:$GROUPS /workdir
 
+    # ================================================================
+    # ★ 安装最新的 Go（1.24.x），覆盖系统自带的
+    # ================================================================
+    - name: Install latest Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.24'
+        check-latest: true
+
+    - name: Verify Go version
+      run: |
+        go version
+        echo "GOROOT=$(go env GOROOT)" >> $GITHUB_ENV
+        echo "GOPATH=$(go env GOPATH)" >> $GITHUB_ENV
+
     - name: Clone source code
       working-directory: /workdir
       run: |
@@ -84,27 +99,29 @@ jobs:
       run: cd openwrt && ./scripts/feeds install -a -p luci
 
     # ================================================================
-    # ★ 直接修改包的 Makefile，启用 GOTOOLCHAIN=auto
+    # ★ 强制所有 Go 编译使用我们安装的 Go 并启用 auto 模式
     # ================================================================
-    - name: Allow auto Go toolchain for v2ray-plugin and mosdns
+    - name: Override Go toolchain and policy
       run: |
-        # v2ray-plugin
-        V2RAY_MAKEFILE=openwrt/package/feeds/helloworld/v2ray-plugin/Makefile
-        if [ -f "$V2RAY_MAKEFILE" ]; then
-          echo 'GO_PKG_TARGET_VARS += GOTOOLCHAIN=auto' >> "$V2RAY_MAKEFILE"
-          echo "Added GOTOOLCHAIN=auto to v2ray-plugin"
+        # 修改 golang-build.sh，指向我们安装的 Go
+        GOLANG_SH=openwrt/feeds/packages/lang/golang/golang-build.sh
+        if [ -f "$GOLANG_SH" ]; then
+          # 将 GOTOOLCHAIN=local 改为 auto
+          sed -i 's/GOTOOLCHAIN=local/GOTOOLCHAIN=auto/g' "$GOLANG_SH"
+          # 强制使用我们安装的 go 二进制
+          sed -i "s|/usr/bin/env bash|/usr/bin/env PATH=${HOME}/go/bin:${PATH} bash|" "$GOLANG_SH"
+          echo "Patched golang-build.sh"
         else
-          echo "v2ray-plugin Makefile not found"
+          echo "golang-build.sh not found, searching..."
+          find openwrt -name golang-build.sh -exec sed -i 's/GOTOOLCHAIN=local/GOTOOLCHAIN=auto/g' {} \;
+          find openwrt -name golang-build.sh -exec sed -i "s|/usr/bin/env bash|/usr/bin/env PATH=${HOME}/go/bin:${PATH} bash|" {} \;
         fi
 
-        # mosdns
-        MOSDNS_MAKEFILE=openwrt/package/feeds/packages/net/mosdns/Makefile
-        if [ -f "$MOSDNS_MAKEFILE" ]; then
-          echo 'GO_PKG_TARGET_VARS += GOTOOLCHAIN=auto' >> "$MOSDNS_MAKEFILE"
-          echo "Added GOTOOLCHAIN=auto to mosdns"
-        else
-          echo "mosdns Makefile not found"
-        fi
+        # 同样处理任何其他引用 local 的文件
+        find openwrt -name "*.mk" -exec sed -i 's/GOTOOLCHAIN=local/GOTOOLCHAIN=auto/g' {} \;
+
+        # 确保 PATH 在后续步骤中优先使用新 Go
+        echo "${HOME}/go/bin" >> $GITHUB_PATH
 
     - name: Load custom configuration
       run: |
@@ -134,6 +151,14 @@ jobs:
         make download -j8
         find dl -size -1024c -exec ls -l {} \;
         find dl -size -1024c -exec rm -f {} \;
+
+    # 删除旧的构建目录，防止使用旧缓存
+    - name: Clean old build artifacts
+      run: |
+        cd openwrt
+        rm -rf build_dir/target-*/v2ray-plugin-*
+        rm -rf build_dir/target-*/mosdns-*
+        echo "Cleaned old build dirs."
 
     - name: Compile the firmware
       id: compile
