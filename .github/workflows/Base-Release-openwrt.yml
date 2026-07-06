@@ -84,17 +84,26 @@ jobs:
       run: cd openwrt && ./scripts/feeds install -a -p luci
 
     # ================================================================
-    # ★ 唯一修改：将 golang 构建脚本中的 GOTOOLCHAIN=local 改为 auto
+    # ★ 直接修改包的 Makefile，启用 GOTOOLCHAIN=auto
     # ================================================================
-    - name: Allow auto Go toolchain
+    - name: Allow auto Go toolchain for v2ray-plugin and mosdns
       run: |
-        GOLANG_BUILD_SH=openwrt/feeds/packages/lang/golang/golang-build.sh
-        if [ -f "$GOLANG_BUILD_SH" ]; then
-          sed -i 's/GOTOOLCHAIN=local/GOTOOLCHAIN=auto/g' "$GOLANG_BUILD_SH"
-          echo "Changed GOTOOLCHAIN to auto in golang-build.sh"
+        # v2ray-plugin
+        V2RAY_MAKEFILE=openwrt/package/feeds/helloworld/v2ray-plugin/Makefile
+        if [ -f "$V2RAY_MAKEFILE" ]; then
+          echo 'GO_PKG_TARGET_VARS += GOTOOLCHAIN=auto' >> "$V2RAY_MAKEFILE"
+          echo "Added GOTOOLCHAIN=auto to v2ray-plugin"
         else
-          echo "golang-build.sh not found at expected path, searching..."
-          find openwrt -name golang-build.sh -exec sed -i 's/GOTOOLCHAIN=local/GOTOOLCHAIN=auto/g' {} \;
+          echo "v2ray-plugin Makefile not found"
+        fi
+
+        # mosdns
+        MOSDNS_MAKEFILE=openwrt/package/feeds/packages/net/mosdns/Makefile
+        if [ -f "$MOSDNS_MAKEFILE" ]; then
+          echo 'GO_PKG_TARGET_VARS += GOTOOLCHAIN=auto' >> "$MOSDNS_MAKEFILE"
+          echo "Added GOTOOLCHAIN=auto to mosdns"
+        else
+          echo "mosdns Makefile not found"
         fi
 
     - name: Load custom configuration
@@ -126,7 +135,6 @@ jobs:
         find dl -size -1024c -exec ls -l {} \;
         find dl -size -1024c -exec rm -f {} \;
 
-    # ★ 注意：不修改任何源码，不跳 hash，直接编译
     - name: Compile the firmware
       id: compile
       run: |
